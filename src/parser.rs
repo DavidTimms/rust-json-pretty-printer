@@ -2,7 +2,7 @@ use std::{cmp::min, error, fmt};
 
 use crate::ast::Json;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct JsonParseError {
     pub message: String,
 }
@@ -58,8 +58,27 @@ fn parse_value(mut rest: &str) -> Parsed {
     }
 }
 
+// TODO support non-standard numbers.
 fn parse_number(rest: &str) -> Parsed {
-    fail("Number parsing not implemented".to_owned())
+    let mut number_string = String::new();
+
+    let mut seen_decimal_point = false;
+
+    for next_char in rest.chars() {
+        if next_char.is_ascii_digit() {
+            number_string.push(next_char);
+        } else if next_char == '.' && !seen_decimal_point {
+            number_string.push(next_char);
+            seen_decimal_point = true;
+        } else {
+            break;
+        }
+    }
+
+    return match number_string.parse::<f64>() {
+        Ok(number) => Ok((Json::Number(number), &rest[number_string.len()..])),
+        Err(_) => fail(format!("Expected number, found: {number_string}")),
+    };
 }
 
 fn parse_string(rest: &str) -> Parsed {
@@ -72,4 +91,40 @@ fn parse_array(rest: &str) -> Parsed {
 
 fn parse_object(rest: &str) -> Parsed {
     fail("Object parsing not implemented".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+    use crate::ast::Json;
+
+    #[test]
+    fn it_parses_null() {
+        assert_eq!(parse("null"), Ok(Json::Null));
+    }
+
+    #[test]
+    fn it_parses_true() {
+        assert_eq!(parse("true"), Ok(Json::Boolean(true)));
+    }
+
+    #[test]
+    fn it_parses_false() {
+        assert_eq!(parse("false"), Ok(Json::Boolean(false)));
+    }
+
+    #[test]
+    fn it_parses_an_integer() {
+        assert_eq!(parse("123"), Ok(Json::Number(123.0)));
+    }
+
+    #[test]
+    fn it_parses_a_decimal() {
+        assert_eq!(parse("123.456"), Ok(Json::Number(123.456)));
+    }
+
+    #[test]
+    fn it_parses_zero() {
+        assert_eq!(parse("0"), Ok(Json::Number(0.0)));
+    }
 }

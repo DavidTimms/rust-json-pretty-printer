@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+#[derive(Debug, PartialEq)]
 pub enum Json {
     Null,
     Boolean(bool),
