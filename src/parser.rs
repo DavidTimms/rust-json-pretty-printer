@@ -49,7 +49,7 @@ fn parse_value(mut rest: &str) -> Parsed {
         Some('n') => consume(rest, "null", Json::Null),
         Some('t') => consume(rest, "true", Json::Boolean(true)),
         Some('f') => consume(rest, "false", Json::Boolean(false)),
-        Some('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') => parse_number(rest),
+        Some('-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') => parse_number(rest),
         Some('"') => parse_string(rest),
         Some('[') => parse_array(rest),
         Some('{') => parse_object(rest),
@@ -58,21 +58,47 @@ fn parse_value(mut rest: &str) -> Parsed {
     }
 }
 
-// TODO support non-standard numbers.
 fn parse_number(rest: &str) -> Parsed {
     let mut number_string = String::new();
+    let mut remaining_chars = rest.chars().peekable();
 
-    let mut seen_decimal_point = false;
-
-    for next_char in rest.chars() {
-        if next_char.is_ascii_digit() {
-            number_string.push(next_char);
-        } else if next_char == '.' && !seen_decimal_point {
-            number_string.push(next_char);
-            seen_decimal_point = true;
-        } else {
-            break;
+    let mut advance_if = |predicate: fn(char) -> bool| -> bool {
+        match remaining_chars.next_if(|arg0: &char| predicate(*arg0)) {
+            Some(next_char) => {
+                number_string.push(next_char);
+                true
+            }
+            None => false,
         }
+    };
+
+    advance_if(|c| c == '-');
+
+    if !advance_if(|c| c == '0') {
+        if !advance_if(|c| "123456789".contains(c)) {
+            return fail(format!(
+                "Unexpected character in number: {}",
+                remaining_chars.peek().unwrap()
+            ));
+        }
+
+        while advance_if(|c| "0123456789".contains(c)) {}
+    }
+
+    if advance_if(|c| c == '.') {
+        if !advance_if(|c| "0123456789".contains(c)) {
+            return fail("Missing digits after point in number".to_owned());
+        }
+        while advance_if(|c| "0123456789".contains(c)) {}
+    }
+
+    if advance_if(|c| c == 'e' || c == 'E') {
+        advance_if(|c| c == '-' || c == '+');
+
+        if !advance_if(|c| "0123456789".contains(c)) {
+            return fail("Missing digits after exponent in number".to_owned());
+        }
+        while advance_if(|c| "0123456789".contains(c)) {}
     }
 
     return match number_string.parse::<f64>() {
@@ -120,11 +146,44 @@ mod tests {
 
     #[test]
     fn it_parses_a_decimal() {
-        assert_eq!(parse("123.456"), Ok(Json::Number(123.456)));
+        assert_eq!(parse("120.056"), Ok(Json::Number(120.056)));
     }
 
     #[test]
     fn it_parses_zero() {
         assert_eq!(parse("0"), Ok(Json::Number(0.0)));
+    }
+
+    #[test]
+    fn it_parses_negative_numbers() {
+        assert_eq!(parse("-123"), Ok(Json::Number(-123.0)));
+    }
+
+    #[test]
+    fn it_parses_numbers_with_exponents() {
+        assert_eq!(parse("10e23"), Ok(Json::Number(10.0e23)));
+        assert_eq!(parse("10E23"), Ok(Json::Number(10.0e23)));
+        assert_eq!(parse("10e+23"), Ok(Json::Number(10.0e23)));
+        assert_eq!(parse("10e-23"), Ok(Json::Number(10.0e-23)));
+    }
+
+    #[test]
+    fn it_rejects_typos() {
+        assert!(parse("nul").is_err());
+        assert!(parse("folse").is_err());
+        assert!(parse("flase").is_err());
+        assert!(parse("truee").is_err());
+        assert!(parse("rue").is_err());
+    }
+
+    #[test]
+    fn it_rejects_invalid_numbers() {
+        assert!(parse(".34").is_err());
+        assert!(parse("145.65.2").is_err());
+        assert!(parse("+23").is_err());
+        assert!(parse("--23").is_err());
+        assert!(parse("-hello").is_err());
+        assert!(parse("00").is_err());
+        assert!(parse("67.").is_err());
     }
 }
