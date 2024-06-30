@@ -20,8 +20,11 @@ pub fn parse(json: &str) -> Result<Json, JsonParseError> {
     let parsed = parse_value(&mut rest)?;
     skip_whitespace(&mut rest);
 
-    if let Some(unexpected_char) = rest.peek() {
-        fail(format!("Unexpected character: {unexpected_char}"))
+    if let Some(unexpected_char) = rest.peek().map(|c| c.to_owned()) {
+        fail(format!(
+            "Unexpected character: {unexpected_char}, {} chars remaining",
+            rest.count()
+        ))
     } else {
         Ok(parsed)
     }
@@ -50,6 +53,20 @@ fn consume(
     Ok(json_value)
 }
 
+fn peek_or_fail(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+    match rest.peek() {
+        Some(c) => Ok(*c),
+        None => fail("Unexpected end of input".to_owned()),
+    }
+}
+
+fn next_or_fail(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+    match rest.next() {
+        Some(c) => Ok(c),
+        None => fail("Unexpected end of input".to_owned()),
+    }
+}
+
 fn skip_whitespace(rest: &mut Peekable<Chars>) {
     while let Some(next_char) = rest.peek() {
         if " \n\r\t".contains(*next_char) {
@@ -63,16 +80,15 @@ fn skip_whitespace(rest: &mut Peekable<Chars>) {
 fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     skip_whitespace(rest);
 
-    match rest.peek() {
-        Some('n') => consume(rest, "null", Json::Null),
-        Some('t') => consume(rest, "true", Json::Boolean(true)),
-        Some('f') => consume(rest, "false", Json::Boolean(false)),
-        Some('-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') => parse_number(rest),
-        Some('"') => parse_string(rest),
-        Some('[') => parse_array(rest),
-        Some('{') => parse_object(rest),
-        Some(unexpected_char) => fail(format!("Unexpected character: {unexpected_char}")),
-        None => fail(format!("Unexpected end of input")),
+    match peek_or_fail(rest)? {
+        'n' => consume(rest, "null", Json::Null),
+        't' => consume(rest, "true", Json::Boolean(true)),
+        'f' => consume(rest, "false", Json::Boolean(false)),
+        '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => parse_number(rest),
+        '"' => parse_string(rest),
+        '[' => parse_array(rest),
+        '{' => parse_object(rest),
+        unexpected_char => fail(format!("Unexpected character: {unexpected_char}")),
     }
 }
 
@@ -125,8 +141,37 @@ fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
 }
 
 fn parse_string(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
-    rest.peek();
-    fail("String parsing not implemented".to_owned())
+    let mut parsed_string = String::new();
+
+    let first_char = next_or_fail(rest)?;
+    if first_char != '"' {
+        return fail(format!("Expected a string, found '{}'", first_char));
+    }
+
+    loop {
+        match next_or_fail(rest)? {
+            '"' => break,
+            '\\' => parsed_string.push(parse_string_escape_char(rest)?),
+            regular_char => parsed_string.push(regular_char),
+        }
+    }
+
+    Ok(Json::String(parsed_string))
+}
+
+fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+    match next_or_fail(rest)? {
+        '"' => Ok('"'),
+        '\\' => Ok('\\'),
+        '/' => Ok('/'),
+        'b' => Ok('\x08'),
+        'f' => Ok('\x0C'),
+        'n' => Ok('\x0A'),
+        'r' => Ok('\x0D'),
+        't' => Ok('\x09'),
+        // TODO hex escapes.
+        _ => fail("Invalid escape sequence in string".to_owned()),
+    }
 }
 
 fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
@@ -201,6 +246,91 @@ mod tests {
         assert_eq!(parse("null\t"), Ok(Json::Null));
         assert_eq!(parse("null\n"), Ok(Json::Null));
         assert_eq!(parse("null\r"), Ok(Json::Null));
+    }
+
+    #[test]
+    fn it_parses_an_empty_string() {
+        assert_eq!(parse(r#""""#), Ok(Json::String("".to_owned())));
+    }
+
+    #[test]
+    fn it_parses_a_regular_ascii_string() {
+        assert_eq!(
+            parse(r#""this is a string.""#),
+            Ok(Json::String("this is a string.".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_unicode_string() {
+        assert_eq!(
+            parse(r#""😃 or 🙁?""#),
+            Ok(Json::String("😃 or 🙁?".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_double_quote() {
+        assert_eq!(
+            parse(r#""double \" quote""#),
+            Ok(Json::String("double \" quote".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_backslash() {
+        assert_eq!(
+            parse(r#""back \\ slash""#),
+            Ok(Json::String("back \\ slash".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_solidus() {
+        assert_eq!(
+            parse(r#""forward \/ slash""#),
+            Ok(Json::String("forward / slash".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_backspace() {
+        assert_eq!(
+            parse(r#""back \b space""#),
+            Ok(Json::String("back \x08 space".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_formfeed() {
+        assert_eq!(
+            parse(r#""form \f feed""#),
+            Ok(Json::String("form \x0C feed".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_linefeed() {
+        assert_eq!(
+            parse(r#""line \n feed""#),
+            Ok(Json::String("line \n feed".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_carriage_return() {
+        assert_eq!(
+            parse(r#""carriage \r return""#),
+            Ok(Json::String("carriage \r return".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_an_escaped_tab() {
+        assert_eq!(
+            parse(r#""horizontal \t tab""#),
+            Ok(Json::String("horizontal \t tab".to_owned()))
+        );
     }
 
     #[test]
