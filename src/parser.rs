@@ -1,4 +1,4 @@
-use std::{cmp::min, error, fmt};
+use std::{error, fmt, iter::Peekable, str::Chars};
 
 use crate::ast::Json;
 
@@ -15,11 +15,12 @@ impl fmt::Display for JsonParseError {
 
 impl error::Error for JsonParseError {}
 
-type Parsed<'a> = Result<(Json, &'a str), JsonParseError>;
-
 pub fn parse(json: &str) -> Result<Json, JsonParseError> {
-    let (parsed, rest) = parse_value(json)?;
-    if let Some(unexpected_char) = rest.trim_start().chars().nth(0) {
+    let mut rest = json.chars().peekable();
+    let parsed = parse_value(&mut rest)?;
+    skip_whitespace(&mut rest);
+
+    if let Some(unexpected_char) = rest.peek() {
         fail(format!("Unexpected character: {unexpected_char}"))
     } else {
         Ok(parsed)
@@ -30,22 +31,39 @@ fn fail<T>(message: String) -> Result<T, JsonParseError> {
     Err(JsonParseError { message: message })
 }
 
-fn consume<'a>(rest: &'a str, literal: &str, json_value: Json) -> Parsed<'a> {
-    if let Some(rest) = rest.strip_prefix(literal) {
-        Ok((json_value, rest))
-    } else {
-        fail(format!(
-            "Expected '{}', but found '{}'",
-            literal,
-            &rest[..min(literal.len(), rest.len())]
-        ))
+fn consume(
+    rest: &mut Peekable<Chars>,
+    literal: &str,
+    json_value: Json,
+) -> Result<Json, JsonParseError> {
+    for expected_char in literal.chars() {
+        match rest.next() {
+            None => return fail("Unexpected end of input".to_owned()),
+            Some(actual_char) if actual_char == expected_char => continue,
+            Some(actual_char) => {
+                return fail(format!(
+                    "Expected '{expected_char}', but found '{actual_char}'",
+                ))
+            }
+        }
+    }
+    Ok(json_value)
+}
+
+fn skip_whitespace(rest: &mut Peekable<Chars>) {
+    while let Some(next_char) = rest.peek() {
+        if " \n\r\t".contains(*next_char) {
+            rest.next();
+            continue;
+        }
+        break;
     }
 }
 
-fn parse_value(mut rest: &str) -> Parsed {
-    rest = rest.trim_start();
-    let next_char = rest.chars().nth(0);
-    match next_char {
+fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+    skip_whitespace(rest);
+
+    match rest.peek() {
         Some('n') => consume(rest, "null", Json::Null),
         Some('t') => consume(rest, "true", Json::Boolean(true)),
         Some('f') => consume(rest, "false", Json::Boolean(false)),
@@ -58,12 +76,11 @@ fn parse_value(mut rest: &str) -> Parsed {
     }
 }
 
-fn parse_number(rest: &str) -> Parsed {
+fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     let mut number_string = String::new();
-    let mut remaining_chars = rest.chars().peekable();
 
     let mut advance_if = |predicate: fn(char) -> bool| -> bool {
-        match remaining_chars.next_if(|arg0: &char| predicate(*arg0)) {
+        match rest.next_if(|arg0: &char| predicate(*arg0)) {
             Some(next_char) => {
                 number_string.push(next_char);
                 true
@@ -78,7 +95,7 @@ fn parse_number(rest: &str) -> Parsed {
         if !advance_if(|c| "123456789".contains(c)) {
             return fail(format!(
                 "Unexpected character in number: {}",
-                remaining_chars.peek().unwrap()
+                rest.peek().unwrap()
             ));
         }
 
@@ -102,20 +119,23 @@ fn parse_number(rest: &str) -> Parsed {
     }
 
     return match number_string.parse::<f64>() {
-        Ok(number) => Ok((Json::Number(number), &rest[number_string.len()..])),
+        Ok(number) => Ok(Json::Number(number)),
         Err(_) => fail(format!("Expected number, found: {number_string}")),
     };
 }
 
-fn parse_string(rest: &str) -> Parsed {
+fn parse_string(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+    rest.peek();
     fail("String parsing not implemented".to_owned())
 }
 
-fn parse_array(rest: &str) -> Parsed {
+fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+    rest.peek();
     fail("Array parsing not implemented".to_owned())
 }
 
-fn parse_object(rest: &str) -> Parsed {
+fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+    rest.peek();
     fail("Object parsing not implemented".to_owned())
 }
 
@@ -165,6 +185,22 @@ mod tests {
         assert_eq!(parse("10E23"), Ok(Json::Number(10.0e23)));
         assert_eq!(parse("10e+23"), Ok(Json::Number(10.0e23)));
         assert_eq!(parse("10e-23"), Ok(Json::Number(10.0e-23)));
+    }
+
+    #[test]
+    fn it_parses_inputs_with_leading_whitespace() {
+        assert_eq!(parse("   null"), Ok(Json::Null));
+        assert_eq!(parse("\tnull"), Ok(Json::Null));
+        assert_eq!(parse("\nnull"), Ok(Json::Null));
+        assert_eq!(parse("\rnull"), Ok(Json::Null));
+    }
+
+    #[test]
+    fn it_parses_inputs_with_trailing_whitespace() {
+        assert_eq!(parse("null   "), Ok(Json::Null));
+        assert_eq!(parse("null\t"), Ok(Json::Null));
+        assert_eq!(parse("null\n"), Ok(Json::Null));
+        assert_eq!(parse("null\r"), Ok(Json::Null));
     }
 
     #[test]
