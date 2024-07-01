@@ -84,7 +84,7 @@ fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         'n' => consume(rest, "null", Json::Null),
         't' => consume(rest, "true", Json::Boolean(true)),
         'f' => consume(rest, "false", Json::Boolean(false)),
-        '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => parse_number(rest),
+        '-' | '0'..='9' => parse_number(rest),
         '"' => parse_string(rest),
         '[' => parse_array(rest),
         '{' => parse_object(rest),
@@ -169,9 +169,29 @@ fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonPars
         'n' => Ok('\x0A'),
         'r' => Ok('\x0D'),
         't' => Ok('\x09'),
-        // TODO hex escapes.
+        'u' => parse_unicode_hex_escape_char(rest),
         _ => fail("Invalid escape sequence in string".to_owned()),
     }
+}
+
+fn parse_unicode_hex_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+    let mut hex_digits = String::new();
+
+    for _ in 0..4 {
+        let next_char = next_or_fail(rest)?;
+        if next_char.is_ascii_hexdigit() {
+            hex_digits.push(next_char);
+        } else {
+            return fail("Invalid hex digit in unicode escape sequence".to_owned());
+        }
+    }
+
+    u32::from_str_radix(&hex_digits, 16)
+        .ok()
+        .and_then(char::from_u32)
+        .ok_or_else(|| JsonParseError {
+            message: "Invalid hex codepoint".to_owned(),
+        })
 }
 
 fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
@@ -205,6 +225,15 @@ mod tests {
     }
 
     #[test]
+    fn it_rejects_typos() {
+        assert!(parse("nul").is_err());
+        assert!(parse("folse").is_err());
+        assert!(parse("flase").is_err());
+        assert!(parse("truee").is_err());
+        assert!(parse("rue").is_err());
+    }
+
+    #[test]
     fn it_parses_an_integer() {
         assert_eq!(parse("123"), Ok(Json::Number(123.0)));
     }
@@ -230,6 +259,17 @@ mod tests {
         assert_eq!(parse("10E23"), Ok(Json::Number(10.0e23)));
         assert_eq!(parse("10e+23"), Ok(Json::Number(10.0e23)));
         assert_eq!(parse("10e-23"), Ok(Json::Number(10.0e-23)));
+    }
+
+    #[test]
+    fn it_rejects_invalid_numbers() {
+        assert!(parse(".34").is_err());
+        assert!(parse("145.65.2").is_err());
+        assert!(parse("+23").is_err());
+        assert!(parse("--23").is_err());
+        assert!(parse("-hello").is_err());
+        assert!(parse("00").is_err());
+        assert!(parse("67.").is_err());
     }
 
     #[test]
@@ -334,22 +374,28 @@ mod tests {
     }
 
     #[test]
-    fn it_rejects_typos() {
-        assert!(parse("nul").is_err());
-        assert!(parse("folse").is_err());
-        assert!(parse("flase").is_err());
-        assert!(parse("truee").is_err());
-        assert!(parse("rue").is_err());
+    fn it_parses_a_string_with_a_unicode_escape_sequence() {
+        assert_eq!(
+            parse(r#""unicode \u0041 literal""#),
+            Ok(Json::String("unicode A literal".to_owned()))
+        );
     }
 
     #[test]
-    fn it_rejects_invalid_numbers() {
-        assert!(parse(".34").is_err());
-        assert!(parse("145.65.2").is_err());
-        assert!(parse("+23").is_err());
-        assert!(parse("--23").is_err());
-        assert!(parse("-hello").is_err());
-        assert!(parse("00").is_err());
-        assert!(parse("67.").is_err());
+    fn it_parses_a_string_with_an_escaped_unicode_pair() {
+        assert_eq!(
+            parse(r#""\uD83D\uDE02""#),
+            Ok(Json::String("😂".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_rejects_invalid_string_escape_sequences() {
+        assert!(parse(r#""\""#).is_err());
+        assert!(parse(r#""\d""#).is_err());
+        assert!(parse(r#""\0""#).is_err());
+        assert!(parse(r#""\ n""#).is_err());
+        assert!(parse(r#""\u001""#).is_err());
+        assert!(parse(r#""\u ""#).is_err());
     }
 }
