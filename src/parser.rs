@@ -18,7 +18,6 @@ impl error::Error for JsonParseError {}
 pub fn parse(json: &str) -> Result<Json, JsonParseError> {
     let mut rest = json.chars().peekable();
     let parsed = parse_value(&mut rest)?;
-    skip_whitespace(&mut rest);
 
     if let Some(unexpected_char) = rest.peek().map(|c| c.to_owned()) {
         fail(format!(
@@ -80,7 +79,7 @@ fn skip_whitespace(rest: &mut Peekable<Chars>) {
 fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     skip_whitespace(rest);
 
-    match peek_or_fail(rest)? {
+    let value = match peek_or_fail(rest)? {
         'n' => consume(rest, "null", Json::Null),
         't' => consume(rest, "true", Json::Boolean(true)),
         'f' => consume(rest, "false", Json::Boolean(false)),
@@ -89,7 +88,11 @@ fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         '[' => parse_array(rest),
         '{' => parse_object(rest),
         unexpected_char => fail(format!("Unexpected character: {unexpected_char}")),
-    }
+    };
+
+    skip_whitespace(rest);
+
+    value
 }
 
 fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
@@ -209,7 +212,6 @@ fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         loop {
             let item = parse_value(rest)?;
             items.push(item);
-            skip_whitespace(rest);
 
             match next_or_fail(rest)? {
                 ']' => break,
