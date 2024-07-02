@@ -195,8 +195,33 @@ fn parse_unicode_hex_escape_char(rest: &mut Peekable<Chars>) -> Result<char, Jso
 }
 
 fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
-    rest.peek();
-    fail("Array parsing not implemented".to_owned())
+    if next_or_fail(rest)? != '[' {
+        return fail("Expected array".to_owned());
+    }
+
+    skip_whitespace(rest);
+
+    let mut items = Vec::new();
+
+    if peek_or_fail(rest)? == ']' {
+        rest.next();
+    } else {
+        loop {
+            let item = parse_value(rest)?;
+            items.push(item);
+            skip_whitespace(rest);
+
+            match next_or_fail(rest)? {
+                ']' => break,
+                ',' => continue,
+                unexpected_char => {
+                    return fail(format!("Expected ',' or ']', found '{unexpected_char}'"))
+                }
+            }
+        }
+    }
+
+    Ok(Json::Array(items))
 }
 
 fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
@@ -382,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn it_parses_a_string_with_an_escaped_unicode_pair() {
+    fn it_parses_a_string_with_an_escaped_unicode_surrogate_pair() {
         assert_eq!(
             parse(r#""\uD83D\uDE02""#),
             Ok(Json::String("😂".to_owned()))
@@ -397,5 +422,60 @@ mod tests {
         assert!(parse(r#""\ n""#).is_err());
         assert!(parse(r#""\u001""#).is_err());
         assert!(parse(r#""\u ""#).is_err());
+    }
+
+    #[test]
+    fn it_parses_an_empty_array() {
+        assert_eq!(parse("[]"), Ok(Json::Array(vec!())));
+        assert_eq!(parse(" [  ] "), Ok(Json::Array(vec!())));
+    }
+
+    #[test]
+    fn it_parses_an_array_with_one_item() {
+        assert_eq!(parse("[123]"), Ok(Json::Array(vec!(Json::Number(123.0)))));
+    }
+
+    #[test]
+    fn it_parses_an_array_with_multiple_items() {
+        assert_eq!(
+            parse("[null,true,false]"),
+            Ok(Json::Array(vec!(
+                Json::Null,
+                Json::Boolean(true),
+                Json::Boolean(false)
+            )))
+        );
+    }
+
+    #[test]
+    fn it_parses_an_array_with_multiple_items_surrounded_by_whitespace() {
+        assert_eq!(
+            parse(" [ 1 ,\t2 ,\n3\r]  \n"),
+            Ok(Json::Array(vec!(
+                Json::Number(1.0),
+                Json::Number(2.0),
+                Json::Number(3.0)
+            )))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_nested_array() {
+        assert_eq!(
+            parse("[[], [[], [null]]]"),
+            Ok(Json::Array(vec!(
+                Json::Array(vec!()),
+                Json::Array(vec!(Json::Array(vec!()), Json::Array(vec!(Json::Null))))
+            )))
+        );
+    }
+
+    #[test]
+    fn it_rejects_an_invalid_array() {
+        assert!(parse("[").is_err());
+        assert!(parse("[]]").is_err());
+        assert!(parse("[,null]").is_err());
+        assert!(parse("[true,]").is_err());
+        assert!(parse(",[]").is_err());
     }
 }
