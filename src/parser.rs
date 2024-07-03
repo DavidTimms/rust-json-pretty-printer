@@ -1,4 +1,4 @@
-use std::{error, fmt, iter::Peekable, str::Chars};
+use std::{collections::BTreeMap, error, fmt, iter::Peekable, str::Chars};
 
 use crate::ast::Json;
 
@@ -84,7 +84,7 @@ fn parse_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         't' => consume(rest, "true", Json::Boolean(true)),
         'f' => consume(rest, "false", Json::Boolean(false)),
         '-' | '0'..='9' => parse_number(rest),
-        '"' => parse_string(rest),
+        '"' => parse_string_value(rest),
         '[' => parse_array(rest),
         '{' => parse_object(rest),
         unexpected_char => fail(format!("Unexpected character: {unexpected_char}")),
@@ -143,7 +143,13 @@ fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     };
 }
 
-fn parse_string(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+fn parse_string_value(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
+    let parsed_string = parse_string(rest)?;
+
+    Ok(Json::String(parsed_string))
+}
+
+fn parse_string(rest: &mut Peekable<Chars>) -> Result<String, JsonParseError> {
     let mut parsed_string = String::new();
 
     let first_char = next_or_fail(rest)?;
@@ -159,7 +165,7 @@ fn parse_string(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         }
     }
 
-    Ok(Json::String(parsed_string))
+    Ok(parsed_string)
 }
 
 fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
@@ -227,12 +233,49 @@ fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
 }
 
 fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
-    rest.peek();
-    fail("Object parsing not implemented".to_owned())
+    if next_or_fail(rest)? != '{' {
+        return fail("Expected array".to_owned());
+    }
+
+    skip_whitespace(rest);
+
+    let mut properties = BTreeMap::new();
+
+    if peek_or_fail(rest)? == '}' {
+        rest.next();
+    } else {
+        loop {
+            let key = parse_string(rest)?;
+            skip_whitespace(rest);
+
+            if next_or_fail(rest)? != ':' {
+                return fail("Missing colon after object key".to_owned());
+            }
+
+            let value = parse_value(rest)?;
+
+            properties.insert(key, value);
+
+            match next_or_fail(rest)? {
+                '}' => break,
+                ',' => {
+                    skip_whitespace(rest);
+                    continue;
+                }
+                unexpected_char => {
+                    return fail(format!("Expected ',' or '}}', found '{unexpected_char}'"))
+                }
+            }
+        }
+    }
+
+    Ok(Json::Object(properties))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::parse;
     use crate::ast::Json;
 
@@ -479,5 +522,79 @@ mod tests {
         assert!(parse("[,null]").is_err());
         assert!(parse("[true,]").is_err());
         assert!(parse(",[]").is_err());
+    }
+
+    #[test]
+    fn it_parses_an_empty_object() {
+        assert_eq!(parse("{}"), Ok(Json::Object(BTreeMap::new())));
+        assert_eq!(parse("\n{ } "), Ok(Json::Object(BTreeMap::new())));
+    }
+
+    #[test]
+    fn it_parses_an_object_with_a_single_property() {
+        assert_eq!(
+            parse(r#"{"key":"value"}"#),
+            Ok(Json::Object(BTreeMap::from([(
+                "key".to_owned(),
+                Json::String("value".to_owned())
+            )])))
+        );
+        assert_eq!(
+            parse(" { \"key\"\t:\n\"value\"   }\n"),
+            Ok(Json::Object(BTreeMap::from([(
+                "key".to_owned(),
+                Json::String("value".to_owned())
+            )])))
+        );
+        assert_eq!(
+            parse(r#"{"the count": 123}"#),
+            Ok(Json::Object(BTreeMap::from([(
+                "the count".to_owned(),
+                Json::Number(123.0)
+            )])))
+        );
+    }
+
+    #[test]
+    fn it_parses_an_object_with_multiple_properties() {
+        assert_eq!(
+            parse(r#"{"name": "Andrew", "age": 63}"#),
+            Ok(Json::Object(BTreeMap::from([
+                ("name".to_owned(), Json::String("Andrew".to_owned())),
+                ("age".to_owned(), Json::Number(63.0))
+            ])))
+        );
+        assert_eq!(
+            parse(r#"{ "prop": null ,"😃" : true, " 123\n " :false }"#),
+            Ok(Json::Object(BTreeMap::from([
+                ("prop".to_owned(), Json::Null),
+                ("😃".to_owned(), Json::Boolean(true)),
+                (" 123\n ".to_owned(), Json::Boolean(false))
+            ])))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_nested_object() {
+        assert_eq!(
+            parse(r#"{"middle": {"inner": {}}}"#),
+            Ok(Json::Object(BTreeMap::from([(
+                "middle".to_owned(),
+                Json::Object(BTreeMap::from([(
+                    "inner".to_owned(),
+                    Json::Object(BTreeMap::from([]))
+                )]))
+            ),])))
+        );
+    }
+
+    #[test]
+    fn it_rejects_an_invalid_object() {
+        assert!(parse("{").is_err());
+        assert!(parse("{}}").is_err());
+        assert!(parse("{unquoted: true}").is_err());
+        assert!(parse(r#"{trailing: "comma",}"#).is_err());
+        assert!(parse(r#"{"no value"}"#).is_err());
+        assert!(parse(r#"{"missing": "comma" "between": "properties"}"#).is_err());
     }
 }
