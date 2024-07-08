@@ -160,7 +160,7 @@ fn parse_string(rest: &mut Peekable<Chars>) -> Result<String, JsonParseError> {
     loop {
         match next_or_fail(rest)? {
             '"' => break,
-            '\\' => parsed_string.push(parse_string_escape_char(rest)?),
+            '\\' => parsed_string.push_str(&parse_string_escape_char(rest)?),
             regular_char => parsed_string.push(regular_char),
         }
     }
@@ -168,22 +168,48 @@ fn parse_string(rest: &mut Peekable<Chars>) -> Result<String, JsonParseError> {
     Ok(parsed_string)
 }
 
-fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<String, JsonParseError> {
+    let mut codepoints = Vec::new();
+
+    loop {
+        codepoints.push(parse_string_escape_as_codepoint(rest)?);
+
+        if peek_or_fail(rest)? == '\\' {
+            next_or_fail(rest)?;
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    let mut decoded = String::new();
+
+    for decoding_result in char::decode_utf16(codepoints) {
+        match decoding_result {
+            Ok(decoded_char) => decoded.push(decoded_char),
+            Err(_) => return fail("Unpaired UTF-16 surrogate in string".to_owned()),
+        }
+    }
+
+    Ok(decoded)
+}
+
+fn parse_string_escape_as_codepoint(rest: &mut Peekable<Chars>) -> Result<u16, JsonParseError> {
     match next_or_fail(rest)? {
-        '"' => Ok('"'),
-        '\\' => Ok('\\'),
-        '/' => Ok('/'),
-        'b' => Ok('\x08'),
-        'f' => Ok('\x0C'),
-        'n' => Ok('\x0A'),
-        'r' => Ok('\x0D'),
-        't' => Ok('\x09'),
-        'u' => parse_unicode_hex_escape_char(rest),
+        '"' => Ok(34),
+        '\\' => Ok(92),
+        '/' => Ok(47),
+        'b' => Ok(8),
+        'f' => Ok(12),
+        'n' => Ok(10),
+        'r' => Ok(13),
+        't' => Ok(9),
+        'u' => parse_utf16_hex_escaped_codepoint(rest),
         _ => fail("Invalid escape sequence in string".to_owned()),
     }
 }
 
-fn parse_unicode_hex_escape_char(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
+fn parse_utf16_hex_escaped_codepoint(rest: &mut Peekable<Chars>) -> Result<u16, JsonParseError> {
     let mut hex_digits = String::new();
 
     for _ in 0..4 {
@@ -195,12 +221,7 @@ fn parse_unicode_hex_escape_char(rest: &mut Peekable<Chars>) -> Result<char, Jso
         }
     }
 
-    u32::from_str_radix(&hex_digits, 16)
-        .ok()
-        .and_then(char::from_u32)
-        .ok_or_else(|| JsonParseError {
-            message: "Invalid hex codepoint".to_owned(),
-        })
+    u16::from_str_radix(&hex_digits, 16).or_else(|_| fail("Invalid hex codepoint".to_owned()))
 }
 
 fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
@@ -448,6 +469,14 @@ mod tests {
         assert_eq!(
             parse(r#""unicode \u0041 literal""#),
             Ok(Json::String("unicode A literal".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_parses_a_string_with_contiguous_non_surrogate_unicode_escape_sequences() {
+        assert_eq!(
+            parse(r#""\u0021\u003D""#),
+            Ok(Json::String("!=".to_owned()))
         );
     }
 
