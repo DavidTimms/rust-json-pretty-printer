@@ -68,13 +68,31 @@ fn display_json_array<W: Write>(
     indent: u64,
     level: u64,
 ) -> Result<(), fmt::Error> {
-    output.write_char('[')?;
+    let child_level = level + 1;
+
+    if items.is_empty() {
+        output.write_str("[]")?;
+        return Ok(());
+    }
+
+    output.write_str("[\n")?;
 
     for (index, item) in items.into_iter().enumerate() {
-        if index > 0 {
+        for _ in 0..(child_level * indent) {
+            output.write_char(' ')?;
+        }
+
+        display_json(item, output, indent, child_level)?;
+
+        if index < items.len() - 1 {
             output.write_char(',')?;
         }
-        display_json(item, output, indent, level)?;
+
+        output.write_char('\n')?;
+    }
+
+    for _ in 0..(level * indent) {
+        output.write_char(' ')?;
     }
 
     output.write_char(']')?;
@@ -223,6 +241,44 @@ mod tests {
         assert_eq!(
             json_to_string(&Json::String("unit \x1F separator".to_owned()), 2),
             r#""unit \u001F separator""#,
+        );
+    }
+
+    #[test]
+    fn it_prints_an_array_with_one_element_per_line_with_2_space_indent() {
+        assert_eq!(
+            json_to_string(
+                &Json::Array(vec!(Json::Null, Json::Boolean(true), Json::Boolean(false))),
+                2
+            ),
+            "[\n  null,\n  true,\n  false\n]",
+        );
+    }
+
+    #[test]
+    fn it_prints_an_empty_array_on_one_line() {
+        assert_eq!(json_to_string(&Json::Array(vec!()), 2), "[]",);
+    }
+
+    #[test]
+    fn it_prints_an_array_with_one_element_per_line_with_4_space_indent() {
+        assert_eq!(
+            json_to_string(
+                &Json::Array(vec!(Json::Null, Json::Boolean(true), Json::Boolean(false))),
+                4
+            ),
+            "[\n    null,\n    true,\n    false\n]",
+        );
+    }
+
+    #[test]
+    fn it_prints_a_nested_array_with_increasing_levels_of_indentation() {
+        assert_eq!(
+            json_to_string(
+                &Json::Array(vec!(Json::Null, Json::Array(vec!(Json::Array(vec!()))))),
+                2
+            ),
+            "[\n  null,\n  [\n    []\n  ]\n]",
         );
     }
 }
