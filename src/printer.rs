@@ -105,15 +105,35 @@ fn display_json_object<W: Write>(
     indent: u64,
     level: u64,
 ) -> Result<(), fmt::Error> {
-    output.write_char('{')?;
+    let child_level = level + 1;
+
+    if object.is_empty() {
+        output.write_str("{}")?;
+        return Ok(());
+    }
+
+    output.write_str("{\n")?;
 
     for (index, (key, value)) in object.into_iter().enumerate() {
-        if index > 0 {
+        for _ in 0..(child_level * indent) {
+            output.write_char(' ')?;
+        }
+
+        output.write_str(&display_json_string(&key))?;
+
+        output.write_str(": ")?;
+
+        display_json(value, output, indent, child_level)?;
+
+        if index < object.len() - 1 {
             output.write_char(',')?;
         }
-        output.write_str(&display_json_string(&key))?;
-        output.write_char(':')?;
-        display_json(value, output, indent, level)?;
+
+        output.write_char('\n')?;
+    }
+
+    for _ in 0..(level * indent) {
+        output.write_char(' ')?;
     }
 
     output.write_char('}')?;
@@ -122,6 +142,8 @@ fn display_json_object<W: Write>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::{ast::Json, printer::json_to_string};
 
     #[test]
@@ -279,6 +301,59 @@ mod tests {
                 2
             ),
             "[\n  null,\n  [\n    []\n  ]\n]",
+        );
+    }
+
+    #[test]
+    fn it_prints_an_empty_object_on_one_line() {
+        assert_eq!(json_to_string(&Json::Object(BTreeMap::from([])), 2), "{}",);
+    }
+
+    #[test]
+    fn it_prints_an_object_with_one_key_per_line_with_2_space_indent() {
+        assert_eq!(
+            json_to_string(
+                &Json::Object(BTreeMap::from([
+                    ("key1".to_owned(), Json::String("value1".to_owned())),
+                    ("key2".to_owned(), Json::String("value2".to_owned()))
+                ])),
+                2
+            ),
+            "{\n  \"key1\": \"value1\",\n  \"key2\": \"value2\"\n}",
+        );
+    }
+
+    #[test]
+    fn it_prints_an_object_with_one_key_per_line_with_4_space_indent() {
+        assert_eq!(
+            json_to_string(
+                &Json::Object(BTreeMap::from([
+                    ("key1".to_owned(), Json::String("value1".to_owned())),
+                    ("key2".to_owned(), Json::String("value2".to_owned()))
+                ])),
+                4
+            ),
+            "{\n    \"key1\": \"value1\",\n    \"key2\": \"value2\"\n}",
+        );
+    }
+
+    #[test]
+    fn it_prints_a_nested_object_with_increasing_levels_of_indentation() {
+        assert_eq!(
+            json_to_string(
+                &Json::Object(BTreeMap::from([(
+                    "deeply".to_owned(),
+                    Json::Object(BTreeMap::from([(
+                        "nested".to_owned(),
+                        Json::Object(BTreeMap::from([(
+                            "object".to_owned(),
+                            Json::Object(BTreeMap::from([]))
+                        )]))
+                    )]))
+                )])),
+                2
+            ),
+            "{\n  \"deeply\": {\n    \"nested\": {\n      \"object\": {}\n    }\n  }\n}",
         );
     }
 }
