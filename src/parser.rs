@@ -29,8 +29,10 @@ pub fn parse(json: &str) -> Result<Json, JsonParseError> {
     }
 }
 
-fn fail<T>(message: String) -> Result<T, JsonParseError> {
-    Err(JsonParseError { message: message })
+fn fail<T>(message: impl Into<String>) -> Result<T, JsonParseError> {
+    Err(JsonParseError {
+        message: message.into(),
+    })
 }
 
 fn consume(
@@ -55,14 +57,14 @@ fn consume(
 fn peek_or_fail(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
     match rest.peek() {
         Some(c) => Ok(*c),
-        None => fail("Unexpected end of input".to_owned()),
+        None => fail("Unexpected end of input"),
     }
 }
 
 fn next_or_fail(rest: &mut Peekable<Chars>) -> Result<char, JsonParseError> {
     match rest.next() {
         Some(c) => Ok(c),
-        None => fail("Unexpected end of input".to_owned()),
+        None => fail("Unexpected end of input"),
     }
 }
 
@@ -123,7 +125,7 @@ fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
 
     if advance_if(|c| c == '.') {
         if !advance_if(|c| "0123456789".contains(c)) {
-            return fail("Missing digits after point in number".to_owned());
+            return fail("Missing digits after point in number");
         }
         while advance_if(|c| "0123456789".contains(c)) {}
     }
@@ -132,7 +134,7 @@ fn parse_number(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
         advance_if(|c| c == '-' || c == '+');
 
         if !advance_if(|c| "0123456789".contains(c)) {
-            return fail("Missing digits after exponent in number".to_owned());
+            return fail("Missing digits after exponent in number");
         }
         while advance_if(|c| "0123456789".contains(c)) {}
     }
@@ -187,7 +189,7 @@ fn parse_string_escape_char(rest: &mut Peekable<Chars>) -> Result<String, JsonPa
     for decoding_result in char::decode_utf16(codepoints) {
         match decoding_result {
             Ok(decoded_char) => decoded.push(decoded_char),
-            Err(_) => return fail("Unpaired UTF-16 surrogate in string".to_owned()),
+            Err(_) => return fail("Unpaired UTF-16 surrogate in string"),
         }
     }
 
@@ -205,7 +207,7 @@ fn parse_string_escape_as_codepoint(rest: &mut Peekable<Chars>) -> Result<u16, J
         'r' => Ok(13),
         't' => Ok(9),
         'u' => parse_utf16_hex_escaped_codepoint(rest),
-        _ => fail("Invalid escape sequence in string".to_owned()),
+        _ => fail("Invalid escape sequence in string"),
     }
 }
 
@@ -217,16 +219,16 @@ fn parse_utf16_hex_escaped_codepoint(rest: &mut Peekable<Chars>) -> Result<u16, 
         if next_char.is_ascii_hexdigit() {
             hex_digits.push(next_char);
         } else {
-            return fail("Invalid hex digit in unicode escape sequence".to_owned());
+            return fail("Invalid hex digit in unicode escape sequence");
         }
     }
 
-    u16::from_str_radix(&hex_digits, 16).or_else(|_| fail("Invalid hex codepoint".to_owned()))
+    u16::from_str_radix(&hex_digits, 16).or_else(|_| fail("Invalid hex codepoint"))
 }
 
 fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     if next_or_fail(rest)? != '[' {
-        return fail("Expected array".to_owned());
+        return fail("Expected array");
     }
 
     skip_whitespace(rest);
@@ -255,7 +257,7 @@ fn parse_array(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
 
 fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
     if next_or_fail(rest)? != '{' {
-        return fail("Expected array".to_owned());
+        return fail("Expected array");
     }
 
     skip_whitespace(rest);
@@ -270,7 +272,7 @@ fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
             skip_whitespace(rest);
 
             if next_or_fail(rest)? != ':' {
-                return fail("Missing colon after object key".to_owned());
+                return fail("Missing colon after object key");
             }
 
             let value = parse_value(rest)?;
