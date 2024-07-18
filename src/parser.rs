@@ -297,10 +297,8 @@ fn parse_object(rest: &mut Peekable<Chars>) -> Result<Json, JsonParseError> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::parse;
-    use crate::ast::Json;
+    use crate::{ast::Json, dsl::ToJson};
 
     #[test]
     fn it_parses_null() {
@@ -309,12 +307,12 @@ mod tests {
 
     #[test]
     fn it_parses_true() {
-        assert_eq!(parse("true"), Ok(Json::Boolean(true)));
+        assert_eq!(parse("true"), Ok(true.to_json()));
     }
 
     #[test]
     fn it_parses_false() {
-        assert_eq!(parse("false"), Ok(Json::Boolean(false)));
+        assert_eq!(parse("false"), Ok(false.to_json()));
     }
 
     #[test]
@@ -328,30 +326,30 @@ mod tests {
 
     #[test]
     fn it_parses_an_integer() {
-        assert_eq!(parse("123"), Ok(Json::Number(123.0)));
+        assert_eq!(parse("123"), Ok(123.to_json()));
     }
 
     #[test]
     fn it_parses_a_decimal() {
-        assert_eq!(parse("120.056"), Ok(Json::Number(120.056)));
+        assert_eq!(parse("120.056"), Ok(120.056.to_json()));
     }
 
     #[test]
     fn it_parses_zero() {
-        assert_eq!(parse("0"), Ok(Json::Number(0.0)));
+        assert_eq!(parse("0"), Ok(0.0.to_json()));
     }
 
     #[test]
     fn it_parses_negative_numbers() {
-        assert_eq!(parse("-123"), Ok(Json::Number(-123.0)));
+        assert_eq!(parse("-123"), Ok((-123.0).to_json()));
     }
 
     #[test]
     fn it_parses_numbers_with_exponents() {
-        assert_eq!(parse("10e23"), Ok(Json::Number(10.0e23)));
-        assert_eq!(parse("10E23"), Ok(Json::Number(10.0e23)));
-        assert_eq!(parse("10e+23"), Ok(Json::Number(10.0e23)));
-        assert_eq!(parse("10e-23"), Ok(Json::Number(10.0e-23)));
+        assert_eq!(parse("10e23"), Ok(10.0e23.to_json()));
+        assert_eq!(parse("10E23"), Ok(10.0e23.to_json()));
+        assert_eq!(parse("10e+23"), Ok(10.0e23.to_json()));
+        assert_eq!(parse("10e-23"), Ok(10.0e-23.to_json()));
     }
 
     #[test]
@@ -383,78 +381,63 @@ mod tests {
 
     #[test]
     fn it_parses_an_empty_string() {
-        assert_eq!(parse(r#""""#), Ok(Json::String("".to_owned())));
+        assert_eq!(parse(r#""""#), Ok("".to_json()));
     }
 
     #[test]
     fn it_parses_a_regular_ascii_string() {
         assert_eq!(
             parse(r#""this is a string.""#),
-            Ok(Json::String("this is a string.".to_owned()))
+            Ok("this is a string.".to_json())
         );
     }
 
     #[test]
     fn it_parses_a_unicode_string() {
-        assert_eq!(
-            parse(r#""😃 or 🙁?""#),
-            Ok(Json::String("😃 or 🙁?".to_owned()))
-        );
+        assert_eq!(parse(r#""😃 or 🙁?""#), Ok("😃 or 🙁?".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_double_quote() {
         assert_eq!(
             parse(r#""double \" quote""#),
-            Ok(Json::String("double \" quote".to_owned()))
+            Ok("double \" quote".to_json())
         );
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_backslash() {
-        assert_eq!(
-            parse(r#""back \\ slash""#),
-            Ok(Json::String("back \\ slash".to_owned()))
-        );
+        assert_eq!(parse(r#""back \\ slash""#), Ok("back \\ slash".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_solidus() {
         assert_eq!(
             parse(r#""forward \/ slash""#),
-            Ok(Json::String("forward / slash".to_owned()))
+            Ok("forward / slash".to_json())
         );
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_backspace() {
-        assert_eq!(
-            parse(r#""back \b space""#),
-            Ok(Json::String("back \x08 space".to_owned()))
-        );
+        assert_eq!(parse(r#""back \b space""#), Ok("back \x08 space".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_formfeed() {
-        assert_eq!(
-            parse(r#""form \f feed""#),
-            Ok(Json::String("form \x0C feed".to_owned()))
-        );
+        assert_eq!(parse(r#""form \f feed""#), Ok("form \x0C feed".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_linefeed() {
-        assert_eq!(
-            parse(r#""line \n feed""#),
-            Ok(Json::String("line \n feed".to_owned()))
-        );
+        assert_eq!(parse(r#""line \n feed""#), Ok("line \n feed".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_carriage_return() {
         assert_eq!(
             parse(r#""carriage \r return""#),
-            Ok(Json::String("carriage \r return".to_owned()))
+            Ok("carriage \r return".to_json())
         );
     }
 
@@ -462,7 +445,7 @@ mod tests {
     fn it_parses_a_string_with_an_escaped_tab() {
         assert_eq!(
             parse(r#""horizontal \t tab""#),
-            Ok(Json::String("horizontal \t tab".to_owned()))
+            Ok("horizontal \t tab".to_json())
         );
     }
 
@@ -470,24 +453,18 @@ mod tests {
     fn it_parses_a_string_with_a_unicode_escape_sequence() {
         assert_eq!(
             parse(r#""unicode \u0041 literal""#),
-            Ok(Json::String("unicode A literal".to_owned()))
+            Ok("unicode A literal".to_json())
         );
     }
 
     #[test]
     fn it_parses_a_string_with_contiguous_non_surrogate_unicode_escape_sequences() {
-        assert_eq!(
-            parse(r#""\u0021\u003D""#),
-            Ok(Json::String("!=".to_owned()))
-        );
+        assert_eq!(parse(r#""\u0021\u003D""#), Ok("!=".to_json()));
     }
 
     #[test]
     fn it_parses_a_string_with_an_escaped_unicode_surrogate_pair() {
-        assert_eq!(
-            parse(r#""\uD83D\uDE02""#),
-            Ok(Json::String("😂".to_owned()))
-        );
+        assert_eq!(parse(r#""\uD83D\uDE02""#), Ok("😂".to_json()));
     }
 
     #[test]
@@ -502,47 +479,33 @@ mod tests {
 
     #[test]
     fn it_parses_an_empty_array() {
-        assert_eq!(parse("[]"), Ok(Json::Array(vec!())));
-        assert_eq!(parse(" [  ] "), Ok(Json::Array(vec!())));
+        assert_eq!(parse("[]"), Ok(Json::array()));
+        assert_eq!(parse(" [  ] "), Ok(Json::array()));
     }
 
     #[test]
     fn it_parses_an_array_with_one_item() {
-        assert_eq!(parse("[123]"), Ok(Json::Array(vec!(Json::Number(123.0)))));
+        assert_eq!(parse("[123]"), Ok([123].to_json()));
     }
 
     #[test]
     fn it_parses_an_array_with_multiple_items() {
         assert_eq!(
             parse("[null,true,false]"),
-            Ok(Json::Array(vec!(
-                Json::Null,
-                Json::Boolean(true),
-                Json::Boolean(false)
-            )))
+            Ok([None, Some(true), Some(false)].to_json())
         );
     }
 
     #[test]
     fn it_parses_an_array_with_multiple_items_surrounded_by_whitespace() {
-        assert_eq!(
-            parse(" [ 1 ,\t2 ,\n3\r]  \n"),
-            Ok(Json::Array(vec!(
-                Json::Number(1.0),
-                Json::Number(2.0),
-                Json::Number(3.0)
-            )))
-        );
+        assert_eq!(parse(" [ 1 ,\t2 ,\n3\r]  \n"), Ok([1, 2, 3].to_json()));
     }
 
     #[test]
     fn it_parses_a_nested_array() {
         assert_eq!(
             parse("[[], [[], [null]]]"),
-            Ok(Json::Array(vec!(
-                Json::Array(vec!()),
-                Json::Array(vec!(Json::Array(vec!()), Json::Array(vec!(Json::Null))))
-            )))
+            Ok([vec!(), vec!(vec!(), vec!(Json::Null))].to_json())
         );
     }
 
@@ -557,32 +520,23 @@ mod tests {
 
     #[test]
     fn it_parses_an_empty_object() {
-        assert_eq!(parse("{}"), Ok(Json::Object(BTreeMap::new())));
-        assert_eq!(parse("\n{ } "), Ok(Json::Object(BTreeMap::new())));
+        assert_eq!(parse("{}"), Ok(Json::object()));
+        assert_eq!(parse("\n{ } "), Ok(Json::object()));
     }
 
     #[test]
     fn it_parses_an_object_with_a_single_property() {
         assert_eq!(
             parse(r#"{"key":"value"}"#),
-            Ok(Json::Object(BTreeMap::from([(
-                "key".to_owned(),
-                Json::String("value".to_owned())
-            )])))
+            Ok([("key", "value")].to_json())
         );
         assert_eq!(
             parse(" { \"key\"\t:\n\"value\"   }\n"),
-            Ok(Json::Object(BTreeMap::from([(
-                "key".to_owned(),
-                Json::String("value".to_owned())
-            )])))
+            Ok([("key", "value")].to_json())
         );
         assert_eq!(
             parse(r#"{"the count": 123}"#),
-            Ok(Json::Object(BTreeMap::from([(
-                "the count".to_owned(),
-                Json::Number(123.0)
-            )])))
+            Ok([("the count", 123)].to_json())
         );
     }
 
@@ -590,18 +544,14 @@ mod tests {
     fn it_parses_an_object_with_multiple_properties() {
         assert_eq!(
             parse(r#"{"name": "Andrew", "age": 63}"#),
-            Ok(Json::Object(BTreeMap::from([
-                ("name".to_owned(), Json::String("Andrew".to_owned())),
-                ("age".to_owned(), Json::Number(63.0))
-            ])))
+            Ok(Json::object().set("name", "Andrew").set("age", 63))
         );
         assert_eq!(
             parse(r#"{ "prop": null ,"😃" : true, " 123\n " :false }"#),
-            Ok(Json::Object(BTreeMap::from([
-                ("prop".to_owned(), Json::Null),
-                ("😃".to_owned(), Json::Boolean(true)),
-                (" 123\n ".to_owned(), Json::Boolean(false))
-            ])))
+            Ok(Json::object()
+                .set("prop", Json::Null)
+                .set("😃", true)
+                .set(" 123\n ", false))
         );
     }
 
@@ -609,13 +559,7 @@ mod tests {
     fn it_parses_a_nested_object() {
         assert_eq!(
             parse(r#"{"middle": {"inner": {}}}"#),
-            Ok(Json::Object(BTreeMap::from([(
-                "middle".to_owned(),
-                Json::Object(BTreeMap::from([(
-                    "inner".to_owned(),
-                    Json::Object(BTreeMap::from([]))
-                )]))
-            ),])))
+            Ok(Json::object().set("middle", Json::object().set("inner", Json::object())))
         );
     }
 

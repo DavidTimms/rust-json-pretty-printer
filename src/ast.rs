@@ -13,16 +13,19 @@ pub enum Json {
 }
 
 impl Json {
-    fn object() -> Json {
+    pub fn array() -> Json {
+        Json::Array(Vec::new())
+    }
+    pub fn object() -> Json {
         Json::Object(BTreeMap::new())
     }
-    fn get(&self, property: &str) -> Option<&Json> {
+    pub fn get(&self, property: &str) -> Option<&Json> {
         match self {
             Json::Object(properties) => properties.get(property),
             _ => None,
         }
     }
-    fn set(self, property: &str, value: impl ToJson) -> Json {
+    pub fn set(self, property: &str, value: impl ToJson) -> Json {
         if let Json::Object(mut properties) = self {
             properties.insert(property.to_owned(), value.to_json());
             Json::Object(properties)
