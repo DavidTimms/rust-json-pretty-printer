@@ -1,7 +1,15 @@
+use std::collections::{BTreeMap, HashMap};
+
 use crate::ast::Json;
 
-trait ToJson {
+pub trait ToJson {
     fn to_json(&self) -> Json;
+}
+
+impl ToJson for Json {
+    fn to_json(&self) -> Json {
+        self.clone()
+    }
 }
 
 impl ToJson for bool {
@@ -19,6 +27,12 @@ impl ToJson for String {
 impl ToJson for str {
     fn to_json(&self) -> Json {
         Json::String(self.to_owned())
+    }
+}
+
+impl ToJson for &str {
+    fn to_json(&self) -> Json {
+        Json::String(self.to_string())
     }
 }
 
@@ -71,9 +85,29 @@ impl<T: ToJson> ToJson for [(&str, T)] {
     }
 }
 
+impl<T: ToJson> ToJson for BTreeMap<&str, T> {
+    fn to_json(&self) -> Json {
+        Json::Object(
+            self.iter()
+                .map(|(key, value)| ((*key).to_owned(), value.to_json()))
+                .collect(),
+        )
+    }
+}
+
+impl<T: ToJson> ToJson for HashMap<&str, T> {
+    fn to_json(&self) -> Json {
+        Json::Object(
+            self.iter()
+                .map(|(key, value)| ((*key).to_owned(), value.to_json()))
+                .collect(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use crate::{ast::Json, dsl::ToJson};
 
@@ -153,6 +187,28 @@ mod tests {
     fn an_array_of_key_value_pairs_is_converted_to_a_json_object() {
         assert_eq!(
             [("foo", 12), ("bar", 34),].to_json(),
+            Json::Object(BTreeMap::from([
+                ("foo".to_owned(), Json::Number(12.0)),
+                ("bar".to_owned(), Json::Number(34.0))
+            ]))
+        );
+    }
+
+    #[test]
+    fn a_btree_map_with_string_keys_is_converted_to_a_json_object() {
+        assert_eq!(
+            BTreeMap::from([("foo", 12), ("bar", 34)]).to_json(),
+            Json::Object(BTreeMap::from([
+                ("foo".to_owned(), Json::Number(12.0)),
+                ("bar".to_owned(), Json::Number(34.0))
+            ]))
+        );
+    }
+
+    #[test]
+    fn a_hash_map_with_string_keys_is_converted_to_a_json_object() {
+        assert_eq!(
+            HashMap::from([("foo", 12), ("bar", 34)]).to_json(),
             Json::Object(BTreeMap::from([
                 ("foo".to_owned(), Json::Number(12.0)),
                 ("bar".to_owned(), Json::Number(34.0))
